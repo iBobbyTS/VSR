@@ -24,9 +24,9 @@ parser.add_argument('-ot', '--output_type',  # Output file type
                     type=str, choices=['video', 'npz', 'npy', 'tiff', 'png'], default='npy',
                     help='Output file type, -o needs to be a file and image sequence or npz needs to be a folder')
 # Process type
-parser.add_argument('-a', '--algorithm', type=str, default='SSM',  # 算法
+parser.add_argument('-a', '--algorithm', type=str, default='EDVR',  # 算法
                     choices=['EDVR', 'ESRGAN'], help='EDVR or ESRGAN')
-parser.add_argument('-mn', '-model_name', type=str, default='',
+parser.add_argument('-mn', '-model_name', type=str, default='mt4r',
                     choices=['ld', 'ldc', 'l4r', 'l4v', 'l4br', 'm4r', 'mt4r'],
                     help='ld: L Deblur, ldc: L Deblur Comp, l4r: L SR REDS x4, l4v: L SR vimeo90K 4x, '
                          'l4br: L SRblur REDS 4x, m4r: M woTSA SR REDS 4x, mt4r: M SR REDS 4x')
@@ -234,9 +234,8 @@ for input_file_path in processes:
         else:
             start_frame = args['start_frame']
         # 模型路径
-        model_path
         if args['model_path'] == 'default':
-            model_path = model_path[args['algorithm']][args['model_name']]
+            model_path = model_path[args['algorithm']][args['mn']]
         else:
             args['model_path']
         output_type = args['output_type']
@@ -258,7 +257,7 @@ for input_file_path in processes:
             output_type = 'tiff'
         else:
             dest_path = False
-        os.makedirs(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
         cag = {'input_file_path': input_file_path,
                'input_type': input_type,
                'empty_cache': args['empty_cache'],
@@ -271,7 +270,7 @@ for input_file_path in processes:
                'width': video.width,
                'start_frame': start_frame,
                'end_frame': end_frame,
-               'model_name': args['model_name'],
+               'model_name': args['mn'],
                'batch_size': args['batch_size'],
                'output_type': output_type,
                'output_dir': output_dir,
@@ -302,38 +301,39 @@ for input_file_path in processes:
         batch_count += 1
 
     # Super resolution
-    SRer = SRers.__dict__[cag['algorithm']](cag['model_name'], cag['model_path'], cag['height'], cag['width'])
+    SRer = SRers.__dict__[cag['algorithm']].SRer(cag['model_name'], cag['model_path'], cag['height'], cag['width'])
     save = data_writer(cag['output_type'])
     frame = video.read()[1]
-    batch = [frame for _ in range(SRer.num_frame-1)]
-    SRer.batch[:-1] = SRer.ndarray2tensor(batch)
+    frame = SRer.ndarray2tensor([frame for _ in range(SRer.num_frame-1)])
+    for i in range(len(frame)-1):
+        SRer.batch[0, i+1, :] = frame[i]
     timer = 0
     start_time = time.time()
     try:
         for i in range(batch_count):
-            batch[:-1] = batch[1:]
+            SRer.batch[0, :-1, :] = SRer.batch.clone()[0, 1:, :]
             f = video.read()
             if f[0]:
-                batch[-1] = SRer.ndarray2tensor(f[1])
-            SRer.sr(batch)
-            save(f"{cag['output_dir']}/{str(i).zfill(cag['frame_count_len'])}", batch)
+                SRer.batch[0, -1, :] = SRer.ndarray2tensor([f[1]])[0]
+            out = SRer.sr()
+            save(f"{cag['output_dir']}/{str(i).zfill(cag['frame_count_len'])}", out)
             time_spent = time.time() - start_time
             start_time = time.time()
             if i == 0:
                 initialize_time = time_spent
                 print(f'Initialized and processed frame 1/{batch_count} | '
-                      f'{batch_count - i - 1} frames left | '
-                      f'Time spent: {round(initialize_time, 2)}s',
-                      end='')
+                        f'{batch_count - i - 1} frames left | '
+                        f'Time spent: {round(initialize_time, 2)}s',
+                        end='')
             else:
                 timer += time_spent
                 frames_processes = i + 1
                 frames_left = batch_count - frames_processes
                 print(f'\rProcessed batch {frames_processes}/{batch_count} | '
-                      f"{frames_left} {'batches' if frames_left > 1 else 'batch'} left | "
-                      f'Time spent: {round(time_spent, 2)}s | '
-                      f'Time left: {second2time(frames_left * timer / i)} | '
-                      f'Total time spend: {second2time(timer + initialize_time)}', end='', flush=True)
+                        f"{frames_left} {'batches' if frames_left > 1 else 'batch'} left | "
+                        f'Time spent: {round(time_spent, 2)}s | '
+                        f'Time left: {second2time(frames_left * timer / i)} | '
+                        f'Total time spend: {second2time(timer + initialize_time)}', end='', flush=True)
     except:
         exit(256)
     print(f'\r{os.path.split(input_file_path)[1]} done! Total time spend: {second2time(timer + initialize_time)}', flush=True)
