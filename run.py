@@ -84,8 +84,8 @@ model_path = {
     'EDVR': {
         'ld': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_deblur_REDS_official-ca46bd8c.pth',
         'ldc': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_deblurcomp_REDS_official-0e988e5c.pth',
-        'l4r': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_x4_SR_Vimeo90K_official-162b54e4.pth',
-        'l4v': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_x4_SR_REDS_official-9f5f5039.pth',
+        'l4v': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_x4_SR_Vimeo90K_official-162b54e4.pth',
+        'l4r': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_x4_SR_REDS_official-9f5f5039.pth',
         'l4br': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_x4_SRblur_REDS_official-983d7b8e.pth',
         'm4r': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_M_woTSA_x4_SR_REDS_official-1edf645c.pth',
         'mt4r': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_M_x4_SR_REDS_official-32075921.pth'
@@ -121,8 +121,8 @@ class data_loader:
             self.cap.set(1, self.start_frame)
             self.fps = self.cap.get(5)
             self.frame_count = int(self.cap.get(7))
-            self.height = self.cap.get(4)
-            self.width = self.cap.get(3)
+            self.height = int(self.cap.get(4))
+            self.width = int(self.cap.get(3))
 
         else:
             self.count = -1
@@ -140,11 +140,11 @@ class data_loader:
 
     def sequence_func(self):
         self.count += 1
-        img = self.sequence_read_funcs[self.input_type](self.files[self.count])
-        if img is not None:
-            return True, img
-        else:
-            return False, None
+        if self.count < self.frame_count:
+            img = self.sequence_read_funcs[self.input_type](self.files[self.count])
+            if img is not None:
+                return True, img
+        return False, None
 
     def close(self):
         if self.input_type == 'video':
@@ -296,53 +296,48 @@ for input_file_path in processes:
         print(f"Model {cag['model_path']} doesn't exist, exiting")
         exit(1)
     # Start frame
-    batch_count = (cag['frame_count'] - start_frame) // cag['batch_size']
-    if (cag['frame_count'] - 1) % cag['batch_size']:
+    batch_count = (cag['frame_count'] - start_frame + 1) // cag['batch_size']
+    if (cag['frame_count'] - start_frame) % cag['batch_size']:
         batch_count += 1
 
     # Super resolution
     SRer = SRers.__dict__[cag['algorithm']].SRer(cag['model_name'], cag['model_path'], cag['height'], cag['width'])
+    SRer.init_batch(video)
     save = data_writer(cag['output_type'])
-    frame = video.read()[1]
-    frame = SRer.ndarray2tensor([frame for _ in range(SRer.num_frame-1)])
-    for i in range(len(frame)-1):
-        SRer.batch[0, i+1, :] = frame[i]
     timer = 0
+    tttt = time.time()
     start_time = time.time()
-    try:
-        for i in range(batch_count):
-            SRer.batch[0, :-1, :] = SRer.batch.clone()[0, 1:, :]
-            f = video.read()
-            if f[0]:
-                SRer.batch[0, -1, :] = SRer.ndarray2tensor([f[1]])[0]
-            out = SRer.sr()
-            save(f"{cag['output_dir']}/{str(i).zfill(cag['frame_count_len'])}", out)
-            time_spent = time.time() - start_time
-            start_time = time.time()
-            if i == 0:
-                initialize_time = time_spent
-                print(f'Initialized and processed frame 1/{batch_count} | '
-                        f'{batch_count - i - 1} frames left | '
-                        f'Time spent: {round(initialize_time, 2)}s',
-                        end='')
-            else:
-                timer += time_spent
-                frames_processes = i + 1
-                frames_left = batch_count - frames_processes
-                print(f'\rProcessed batch {frames_processes}/{batch_count} | '
-                        f"{frames_left} {'batches' if frames_left > 1 else 'batch'} left | "
-                        f'Time spent: {round(time_spent, 2)}s | '
-                        f'Time left: {second2time(frames_left * timer / i)} | '
-                        f'Total time spend: {second2time(timer + initialize_time)}', end='', flush=True)
-    except:
-        exit(256)
+    # try:
+    for i in range(batch_count):
+        out = SRer.sr(video.read())
+        save(f"{cag['output_dir']}/{str(i).zfill(cag['frame_count_len'])}", out)
+        time_spent = time.time() - start_time
+        start_time = time.time()
+        if i == 0:
+            initialize_time = time_spent
+            print(f'Initialized and processed frame 1/{batch_count} | '
+                    f'{batch_count - i - 1} frames left | '
+                    f'Time spent: {round(initialize_time, 2)}s',
+                    end='')
+        else:
+            timer += time_spent
+            frames_processes = i + 1
+            frames_left = batch_count - frames_processes
+            print(f'\rProcessed batch {frames_processes}/{batch_count} | '
+                    f"{frames_left} {'batches' if frames_left > 1 else 'batch'} left | "
+                    f'Time spent: {round(time_spent, 2)}s | '
+                    f'Time left: {second2time(frames_left * timer / i)} | '
+                    f'Total time spend: {second2time(timer + initialize_time)}', end='', flush=True)
+    # except:
+    #     exit(256)
+    print('\n', time.time()-tttt)
     print(f'\r{os.path.split(input_file_path)[1]} done! Total time spend: {second2time(timer + initialize_time)}', flush=True)
     if cag['dest_path']:
         # Mac compatibility
         pix_fmt = ' -pix_fmt yuv420p' if cag['mac_compatibility'] else ''
         # Execute command
         cmd = [f"'{os.path.join(cag['ffmpeg_dir'], 'ffmpeg')}' -loglevel error ",
-               f"-vsync 0 -r {cag['target_fps']} -pattern_type glob -i '{cag['temp_folder']}/tiff/*.tiff' ",
+               f"-vsync 0 -r {cag['fps']} -pattern_type glob -i '{cag['temp_folder']}/tiff/*.tiff' ",
                f"-vcodec {cag['vcodec']}{pix_fmt} '{cag['dest_path']}'"]
         if cag['start_frame'] == 1 and cag['end_frame'] == 0:
             cmd.insert(1, '-thread_queue_size 128 ')
