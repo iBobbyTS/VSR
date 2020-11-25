@@ -1,4 +1,5 @@
 import math
+
 import numpy
 import torch
 
@@ -21,23 +22,28 @@ class SRer:
 
         self.h_w = [int(math.ceil(height / 32) * 32 - height) if height % 32 else 0,
                     int(math.ceil(width / 32) * 32) - width if width % 32 else 0]
-        dim = [height + self.h_w[0], width + self.h_w[1]]
-
-        self.batch = torch.cuda.FloatTensor(1, self.num_frame, 3, dim[0], dim[1])
+        self.dim = [height + self.h_w[0], width + self.h_w[1]]
 
         self.model.load_state_dict(torch.load(model_path)['params'], strict=True)
         self.model.eval()
+    
+    def init_batch(self, video):
+        self.batch = torch.cuda.FloatTensor(1, self.num_frame, 3, self.dim[0], self.dim[1])
+        frame = self.ndarray2tensor(video.read()[1])
+        for i in range(self.num_frame // 2 + 1):
+            self.batch[0, i, :] = frame
+        for i in range(self.num_frame // 2+1, self.num_frame - 1):
+            self.batch[0, i, :] = self.ndarray2tensor(video.read()[1])
+    
+    def ndarray2tensor(self, frame: numpy.ndarray):
+        out_frame = torch.zeros((self.dim[0], self.dim[1], 3), dtype=torch.uint8, device=torch.device('cuda'))
+        out_frame[self.h_w[0]:, self.h_w[1]:] = torch.cuda.ByteTensor(frame)
+        out_frame = out_frame[:, :, [2, 1, 0]].permute(2, 0, 1).float()/255.
+        return out_frame
 
-    def ndarray2tensor(self, frames: list):  # 内部调用
-        out_frames = []
-        for frame in frames:
-            frame = torch.cuda.ByteTensor(frame)[:, :, [2, 1, 0]]
-            frame = torch.cat([torch.zeros((frame.shape[0], self.h_w[1], 3)).cuda().byte(), frame], dim=1)
-            frame = torch.cat([torch.zeros((self.h_w[0], frame.shape[1], 3)).cuda().byte(), frame], dim=0)
-            out_frames.append(frame.permute(2, 0, 1).float() / 255)
-        return out_frames
-
-    def sr(self):
-        output = self.model(self.batch).data.squeeze().float() * 255
-        output = output.clamp(0, 255).byte().permute(1, 2, 0)[self.h_w[0]*self.enlarge:, self.h_w[1]*self.enlarge:, [2, 1, 0]].cpu().numpy()
+    def sr(self, f):
+        if f[0]:
+            self.batch[0, -1] = self.ndarray2tensor(f[1])
+        output = (self.model(self.batch).detach() * 255.).clamp(0, 255).byte().squeeze().permute(1, 2, 0)[self.h_w[0]*self.enlarge:, self.h_w[1]*self.enlarge:, [2, 1, 0]].cpu().numpy()
+        self.batch[0, :-1] = self.batch.clone()[0, 1:]
         return output
