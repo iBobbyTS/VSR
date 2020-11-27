@@ -1,7 +1,6 @@
 import math
 
 import numpy
-import cv2
 import torch
 
 from basicsr.models.archs.edvr_arch import EDVR
@@ -33,11 +32,11 @@ class SRer:
     def __init__(self, model_name, model_path, height, width):
         self.model, self.num_frame, self.enlarge, ef, max_res = self.models[model_name]
         self.height, self.width = height, width
-        self.splition = cal_split((self.dim[0], self.dim[1]), 256)
 
         self.h_w = [int(math.ceil(height / ef) * ef - height) if height % ef else 0,
                     int(math.ceil(width / ef) * ef) - width if width % ef else 0]
         self.dim = [height + self.h_w[0], width + self.h_w[1]]
+        self.splition = cal_split((self.dim[0], self.dim[1]), max_res)
         self.pader = torch.nn.ReplicationPad2d([0, self.h_w[1], 0, self.h_w[0]])
 
         self.model.load_state_dict(torch.load(model_path)['params'], strict=True)
@@ -62,11 +61,10 @@ class SRer:
             self.batch[0, -1] = self.ndarray2tensor(f[1])
         outputs = []
         for i in self.splition:
-            outputs.append((self.model(self.batch[:, :, :, i[0]:i[1], i[2]:i[3]])*255.0).clamp(0, 255).byte().squeeze().permute(1, 2, 0).cpu().numpy())
+            outputs.append((self.model(self.batch[:, :, :, i[0]:i[1], i[2]:i[3]])*255.0).clamp(0, 255).byte().squeeze()[[2, 1, 0]].permute(1, 2, 0).cpu().numpy())
         self.batch[0, :-1] = self.batch.clone()[0, 1:]
         output = numpy.zeros((self.height*e, self.width*e, 3), dtype=numpy.uint8)
         for slice_, tensor in zip(self.splition, outputs):
             shape = output[slice_[0]*e:slice_[1]*e, slice_[2]*e:slice_[3]*e].shape
             output[slice_[0]*e:slice_[1]*e, slice_[2]*e:slice_[3]*e] = tensor[:shape[0], :shape[1]]
-        output = output[self.h_w[0]*e:, self.h_w[1]*e:, [2, 1, 0]]
         return output
