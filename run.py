@@ -179,23 +179,23 @@ def detect_input_type(input_dir):  # 检测输入类型
     return input_type_
 
 
-def check_output_dir(target_dir, ext=''):
-    count = 2
-    if os.path.exists(target_dir + ext):
-        while True:
-            if not os.path.exists(f'{target_dir}_{count}{ext}'):
-                output_dir = f'{target_dir}_{count}{ext}'
-                break
+def check_name(dire, ext=''):
+    if not os.path.exists(os.path.split(dire)[0]):  # If mother directory doesn't exist
+        os.makedirs(os.path.split(dire)[0])  # Create one
+    if os.path.exists(dire + ext):  # If target file/folder exists
+        count = 2
+        while os.path.exists(f'{dire}_{count}{ext}'):
             count += 1
-    else:
-        output_dir = target_dir + ext
-    return output_dir
+        dire = f'{dire}_{count}{ext}'
+    if not ext:  # Output as folder
+        os.mkdir(dire)
+    return dire
 
 
 def second2time(second: float):
     m, s = divmod(second, 60)
     h, m = divmod(m, 60)
-    t = '%d:%02d:%02d' % (h, m, s)
+    t = '%d:%02d:%.2f' % (h, m, s)
     return t
 
 
@@ -205,7 +205,8 @@ if input_type == 'mix':
     processes = [os.path.join(args['input'], process) for process in processes]
 else:
     processes = [args['input']]
-
+# Extra work
+args['start_frame'] -= 1
 for input_file_path in processes:
     input_type = detect_input_type(input_file_path)
     if input_type != 'continue':
@@ -214,11 +215,12 @@ for input_file_path in processes:
         input_file_name_list.pop(1)
         temp_file_path = check_output_dir(os.path.join(args['temp_file_path'], input_file_name_list[1]))
         os.makedirs(temp_file_path)
-        args['start_frame'] -= 1
         video = data_loader(input_file_path, input_type, args['start_frame'])
         frame_count = video.frame_count
         frame_count_len = len(str(frame_count))
-        if input_type == 'video':
+        if args['fps']:
+            fps = args['fps']
+        elif input_type == 'video':
             fps = video.fps
         else:
             fps = 30
@@ -233,31 +235,32 @@ for input_file_path in processes:
             start_frame = 1
         else:
             start_frame = args['start_frame']
-        # 模型路径
-        if args['model_path'] == 'default':
+
+        if args['model_path'] == 'default':  # 模型路径
             model_path = model_path[args['algorithm']][args['mn']]
         else:
-            args['model_path']
+            model_path = args['model_path']
+
         output_type = args['output_type']
         output_dir = args['output']
         if output_dir == 'default':
-            output_dir = f'{input_file_name_list[0]}/{input_file_name_list[1]}_EDVR'
-        if output_type == 'video' and len(output_dir.split('/')[-1].split('.')) < 2:
+            output_dir = f"{input_file_name_list[0]}/{input_file_name_list[1]}{args['algorithm']}"
+        if output_type == 'video':
             if input_file_name_list[2]:
                 ext = input_file_name_list[2]
             else:
                 ext = '.mp4'
         else:
             output_dir, ext = os.path.splitext(output_dir)
-        if not os.path.exists(os.path.split(output_dir)[0]):
-            os.makedirs(os.path.split(output_dir)[0])
+        output_dir = check_name(output_dir, ext)
         if output_type == 'video':
             dest_path = check_output_dir(os.path.splitext(output_dir)[0], ext)
             output_dir = f'{temp_file_path}/tiff'
             output_type = 'tiff'
+            os.makedirs(output_dir)
         else:
             dest_path = False
-        os.makedirs(output_dir, exist_ok=True)
+
         cag = {'input_file_path': input_file_path,
                'input_type': input_type,
                'empty_cache': args['empty_cache'],
@@ -275,6 +278,7 @@ for input_file_path in processes:
                'output_type': output_type,
                'output_dir': output_dir,
                'dest_path': dest_path,
+               'copy': copy,
                'mac_compatibility': args['mac_compatibility'],
                'ffmpeg_dir': args['ffmpeg_dir'],
                'fps': fps,
@@ -287,7 +291,7 @@ for input_file_path in processes:
             cag = json.load(f_)
         start_frame = len(listdir(cag['output_dir'])) // cag['sf']
         video = data_loader(cag['input_file_path'], cag['input_type'], start_frame - 1)
-    # empty cache
+
     if cag['empty_cache']:
         os.environ['CUDA_EMPTY_CACHE'] = '1'
 
@@ -305,33 +309,39 @@ for input_file_path in processes:
     SRer.init_batch(video)
     save = data_writer(cag['output_type'])
     timer = 0
-    tttt = time.time()
     start_time = time.time()
-    # try:
-    for i in range(batch_count):
-        out = SRer.sr(video.read())
-        save(f"{cag['output_dir']}/{str(i).zfill(cag['frame_count_len'])}", out)
-        time_spent = time.time() - start_time
-        start_time = time.time()
-        if i == 0:
-            initialize_time = time_spent
-            print(f'Initialized and processed frame 1/{batch_count} | '
-                    f'{batch_count - i - 1} frames left | '
-                    f'Time spent: {round(initialize_time, 2)}s',
-                    end='')
-        else:
-            timer += time_spent
-            frames_processes = i + 1
-            frames_left = batch_count - frames_processes
-            print(f'\rProcessed batch {frames_processes}/{batch_count} | '
-                    f"{frames_left} {'batches' if frames_left > 1 else 'batch'} left | "
-                    f'Time spent: {round(time_spent, 2)}s | '
-                    f'Time left: {second2time(frames_left * timer / i)} | '
-                    f'Total time spend: {second2time(timer + initialize_time)}', end='', flush=True)
-    # except:
-    #     exit(256)
-    print('\n', time.time()-tttt)
+    try:
+        for i in range(batch_count):
+            out = SRer.sr(video.read())
+            save(f"{cag['output_dir']}/{str(i).zfill(cag['frame_count_len'])}", out)
+            time_spent = time.time() - start_time
+            start_time = time.time()
+            if i == 0:
+                initialize_time = time_spent
+                print(f'Initialized and processed frame 1/{batch_count} | '
+                      f'{batch_count - i - 1} frames left | '
+                      f'Time spent: {round(initialize_time, 2)}s',
+                      end='')
+            else:
+                timer += time_spent
+                frames_processes = i + 1
+                frames_left = batch_count - frames_processes
+                print(f'\rProcessed batch {frames_processes}/{batch_count} | '
+                      f"{frames_left} {'batches' if frames_left > 1 else 'batch'} left | "
+                      f'Time spent: {round(time_spent, 2)}s | '
+                      f'Time left: {second2time(frames_left * timer / i)} | '
+                      f'Total time spend: {second2time(timer + initialize_time)}', end='', flush=True)
+    except KeyboardInterrupt:
+        print('\nCaught Ctrl-C, exiting. ')
+        exit(256)
+    if cag['copy']:
+        for i in range(cag['sf']):
+            save(f"{cag['output_dir']}/"
+                 f"{str(frame_count - 1).zfill(cag['frame_count_len'])}_"
+                 f"{str(i).zfill(cag['sf_len'])}", batch[-1])
+    del batch, interpolator
     print(f'\r{os.path.split(input_file_path)[1]} done! Total time spend: {second2time(timer + initialize_time)}', flush=True)
+    # Video post process
     if cag['dest_path']:
         # Mac compatibility
         pix_fmt = ' -pix_fmt yuv420p' if cag['mac_compatibility'] else ''
