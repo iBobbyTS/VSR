@@ -6,6 +6,18 @@ import torch
 from basicsr.models.archs.edvr_arch import EDVR
 
 
+def cal_split(h_w, max_side_length):
+    splition = []
+    for i in range(math.ceil(h_w[0]/max_side_length)):
+        for j in range(math.ceil(h_w[1] / max_side_length)):
+            ws = i*max_side_length
+            we = (i+1)*max_side_length if (i+1)*max_side_length <= h_w[0] else h_w[0]
+            hs = j*max_side_length
+            he = (j+1)*max_side_length if (j+1)*max_side_length <= h_w[1] else h_w[1]
+            splition.append((ws, we, hs, he))
+    return splition
+
+
 class SRer:
     models = {
         'ld':   [EDVR(num_feat=128, num_reconstruct_block=40, hr_in=True, with_predeblur=True).cuda(), 5, 1],
@@ -31,6 +43,8 @@ class SRer:
 
     def init_batch(self, video):
         self.batch = torch.cuda.FloatTensor(1, self.num_frame, 3, self.dim[0], self.dim[1])
+        print(self.batch.size())
+        self.splition = cal_split((self.dim[0], self.dim[1]), 256)
         frame = self.ndarray2tensor(video.read()[1])
         for i in range(self.num_frame // 2 + 1):
             self.batch[0, i] = frame
@@ -45,6 +59,12 @@ class SRer:
     def sr(self, f):
         if f[0]:
             self.batch[0, -1] = self.ndarray2tensor(f[1])
-        output = (self.model(self.batch).detach() * 255.0).clamp(0, 255).byte().squeeze().permute(1, 2, 0)[:self.height*self.enlarge, :self.width*self.enlarge, [2, 1, 0]].cpu().numpy()
+        outputs = []
+        for i in self.splition:
+            outputs.append((self.model(self.batch[:, :, :, i[0]:i[1], i[2]:i[3]])*255.0).clamp(0, 255).byte().squeeze().permute(1, 2, 0).cpu().numpy())
         self.batch[0, :-1] = self.batch.clone()[0, 1:]
+        output = numpy.zeros((self.height*self.enlarge, self.width*self.enlarge, 3), dtype=numpy.uint8)
+        for slice_, tensor in zip(self.splition, outputs):
+            output[slice_[0]*self.enlarge:slice_[1]*self.enlarge, slice_[2]*self.enlarge:slice_[3]*self.enlarge, :] = tensor
+        output = output[:, :, [2, 1, 0]]
         return output
