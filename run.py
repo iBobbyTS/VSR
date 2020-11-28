@@ -80,7 +80,7 @@ parser.add_argument('-net', '--net_name', type=str, default='DAIN_slowmotion',  
 
 args = parser.parse_args().__dict__
 
-model_path = {
+model_paths = {
     'EDVR': {
         'ld': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_deblur_REDS_official-ca46bd8c.pth',
         'ldc': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_L_deblurcomp_REDS_official-0e988e5c.pth',
@@ -238,7 +238,7 @@ for input_file_path in processes:
             start_frame = args['start_frame']
 
         if args['model_path'] == 'default':  # 模型路径
-            model_path = model_path[args['algorithm']][args['mn']]
+            model_path = model_paths[args['algorithm']][args['mn']]
         else:
             model_path = args['model_path']
 
