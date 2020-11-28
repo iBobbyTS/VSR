@@ -187,6 +187,8 @@ def check_output_dir(dire, ext=''):
         while os.path.exists(f'{dire}_{count}{ext}'):
             count += 1
         dire = f'{dire}_{count}{ext}'
+    else:
+        dire = f'{dire}{ext}'
     if not ext:  # Output as folder
         os.mkdir(dire)
     return dire
@@ -243,7 +245,7 @@ for input_file_path in processes:
         output_type = args['output_type']
         output_dir = args['output']
         if output_dir == 'default':
-            output_dir = f"{input_file_name_list[0]}/{input_file_name_list[1]}{args['algorithm']}"
+            output_dir = f"{input_file_name_list[0]}/{input_file_name_list[1]}_{args['algorithm']}"
         if output_type == 'video':
             if input_file_name_list[2]:
                 ext = input_file_name_list[2]
@@ -277,7 +279,6 @@ for input_file_path in processes:
                'output_type': output_type,
                'output_dir': output_dir,
                'dest_path': dest_path,
-               'copy': copy,
                'mac_compatibility': args['mac_compatibility'],
                'ffmpeg_dir': args['ffmpeg_dir'],
                'fps': fps,
@@ -333,12 +334,7 @@ for input_file_path in processes:
     except KeyboardInterrupt:
         print('\nCaught Ctrl-C, exiting. ')
         exit(256)
-    if cag['copy']:
-        for i in range(cag['sf']):
-            save(f"{cag['output_dir']}/"
-                 f"{str(frame_count - 1).zfill(cag['frame_count_len'])}_"
-                 f"{str(i).zfill(cag['sf_len'])}", batch[-1])
-    del batch, interpolator
+    del video, SRer
     print(f'\r{os.path.split(input_file_path)[1]} done! Total time spend: {second2time(timer + initialize_time)}', flush=True)
     # Video post process
     if cag['dest_path']:
