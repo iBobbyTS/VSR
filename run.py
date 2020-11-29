@@ -23,6 +23,7 @@ parser.add_argument('-o', '--output',  # Output file
 parser.add_argument('-ot', '--output_type',  # Output file type
                     type=str, choices=['video', 'npz', 'npy', 'tiff', 'png'], default='npy',
                     help='Output file type, -o needs to be a file and image sequence or npz needs to be a folder')
+
 # Process type
 parser.add_argument('-a', '--algorithm', type=str, default='EDVR',  # 算法
                     choices=['EDVR', 'ESRGAN'], help='EDVR or ESRGAN')
@@ -30,6 +31,7 @@ parser.add_argument('-mn', '-model_name', type=str, default='mt4r',
                     choices=['ld', 'ldc', 'l4r', 'l4v', 'l4br', 'm4r', 'mt4r'],
                     help='ld: L Deblur, ldc: L Deblur Comp, l4r: L SR REDS x4, l4v: L SR vimeo90K 4x, '
                          'l4br: L SRblur REDS 4x, m4r: M woTSA SR REDS 4x, mt4r: M SR REDS 4x')
+
 # Model directory
 parser.add_argument('-md', '--model_path',  # 模型路径
                     type=str, default='default',
@@ -48,8 +50,11 @@ parser.add_argument('-fd', '--ffmpeg_dir',  # FFmpeg路径
 parser.add_argument('-vc', '--vcodec',  # 视频编码
                     type=str, default='h264',
                     help='Video codec')
+parser.add_argument('-ac', '--acodec',  # 音频编码
+                    type=str, default='copy',
+                    help='Audio codec')
 parser.add_argument('-br', '--bit_rate',  # 视频编码
-                    type=str, default='100M',
+                    type=str, default='',
                     help='Bit rate for output video')
 parser.add_argument('-fps',  # 目标帧率
                     type=float,
@@ -74,10 +79,6 @@ parser.add_argument('-rm', '--remove_temp_file',  # 是否移除临时文件
                     type=bool, default=False,
                     help='If you want to keep temporary files, select True ')
 
-# EDVR
-parser.add_argument('-net', '--net_name', type=str, default='DAIN_slowmotion',  # DAIN 的网络
-                    choices=['DAIN', 'DAIN_slowmotion'], help='model architecture: DAIN | DAIN_slowmotion')
-
 args = parser.parse_args().__dict__
 
 model_paths = {
@@ -91,12 +92,12 @@ model_paths = {
         'mt4r': 'BasicSR/experiments/pretrained_models/EDVR/EDVR_M_x4_SR_REDS_official-32075921.pth'
     },
     'ESRGAN': {
-        'test': 'ESRGAN.ckpt'
+        'test': 'ESRGAN.pth'
     }
 }
 
 
-def listdir(folder):  # 输入文件夹路径，输出文件夹内的文件，排序并移除可能的无关文件
+def listdir(folder):
     disallow = ['.DS_Store', '.ipynb_checkpoints', '$RECYCLE.BIN', 'Thumbs.db', 'desktop.ini']
     files = []
     for file in os.listdir(folder):
@@ -227,10 +228,8 @@ for input_file_path in processes:
             fps = 30
         # Start/End frame
         if args['end_frame'] == 0 or args['end_frame'] == frame_count or args['end_frame'] > frame_count:
-            copy = True
             end_frame = frame_count
         else:
-            copy = False
             end_frame = args['end_frame'] + 1
         if args['start_frame'] == 0 or args['start_frame'] >= frame_count:
             start_frame = 1
@@ -253,14 +252,15 @@ for input_file_path in processes:
                 ext = '.mp4'
         else:
             output_dir, ext = os.path.splitext(output_dir)
-        output_dir = check_output_dir(output_dir, ext)
+        if not os.path.exists(os.path.split(output_dir)[0]):
+            os.makedirs(os.path.split(output_dir)[0])
         if output_type == 'video':
             dest_path = check_output_dir(os.path.splitext(output_dir)[0], ext)
             output_dir = f'{temp_file_path}/tiff'
             output_type = 'tiff'
-            os.makedirs(output_dir)
         else:
             dest_path = False
+        os.makedirs(output_dir, exist_ok=True)
 
         cag = {'input_file_path': input_file_path,
                'input_type': input_type,
@@ -282,7 +282,9 @@ for input_file_path in processes:
                'mac_compatibility': args['mac_compatibility'],
                'ffmpeg_dir': args['ffmpeg_dir'],
                'fps': fps,
-               'vcodec': args['vcodec']
+               'vcodec': args['vcodec'],
+               'acodec': args['acodec'],
+               'remove_temp_file': args['remove_temp_file']
                }
         with open(f'{temp_file_path}/process_info.json', 'w') as f:
             json.dump(cag, f)
@@ -293,7 +295,7 @@ for input_file_path in processes:
         video = data_loader(cag['input_file_path'], cag['input_type'], start_frame - 1)
 
     if cag['empty_cache']:
-        os.environ['CUDA_EMPTY_CACHE'] = '1'
+        os.environ['CUDA_EMPTY_CACHE'] = cag['empty_cache']
 
     # Model checking
     if not os.path.exists(cag['model_path']):
@@ -339,15 +341,26 @@ for input_file_path in processes:
     # Video post process
     if cag['dest_path']:
         # Mac compatibility
-        pix_fmt = ' -pix_fmt yuv420p' if cag['mac_compatibility'] else ''
+        mac_compatibility = ['-pix_fmt', 'yuv420p'] if cag['mac_compatibility'] else ''
+        if 'hevc' in cag['vcodec']:
+            mac_compatibility.extend(['-vtag', 'hvc1'])
         # Execute command
-        cmd = [f"'{os.path.join(cag['ffmpeg_dir'], 'ffmpeg')}' -loglevel error ",
-               f"-vsync 0 -r {cag['fps']} -pattern_type glob -i '{cag['temp_folder']}/tiff/*.tiff' ",
-               f"-vcodec {cag['vcodec']}{pix_fmt} '{cag['dest_path']}'"]
-        if cag['start_frame'] == 1 and cag['end_frame'] == 0:
-            cmd.insert(1, '-thread_queue_size 128 ')
-            cmd.insert(3, f"-vn -i '{input_file_path}' ")
-        cmd = ''.join(cmd)
-        print(cmd)
+        cmd = [f"'{os.path.join(cag['ffmpeg_dir'], 'ffmpeg')}'",
+               '-loglevel error', '-vsync 0',
+               '-r', str(cag['fps']),
+               '-pattern_type glob',
+               '-i', f"'{os.path.join(cag['temp_folder'], 'tiff/*.tiff')}'",
+               '-vcodec', cag['vcodec'], *mac_compatibility,
+               f"'{cag['dest_path']}'"]
+        has_audio = \
+        eval(subprocess.getoutput(f"ffprobe -v quiet -show_streams -select_streams a -print_format json '{path}'"))[
+            'streams']
+        if cag['start_frame'] == 1 and cag['end_frame'] == 0 and has_audio:
+            cmd.insert(1, '-thread_queue_size 128')
+            cmd.insert(3, f"-vn -i '{input_file_path}'")
+            cmd.insert(7, f"-acodec {cag['acodec']}")
+        cmd = ' '.join(cmd)
         os.system(cmd)
+    if cag['remove_temp_file']:
+        rmtree(cag['temp_folder'])
 print(time.time() - everything_start_time)
