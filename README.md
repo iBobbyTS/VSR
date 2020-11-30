@@ -36,7 +36,7 @@ Colab Demo: [Notebooks](https://colab.research.google.com/drive/13rb0AmNTcAguy48
 	cd ..
 	```
 ### Easy inferencing
-	```bash
+	```
 	cd VSR
 	python run.py -i input.mp4
 	```
