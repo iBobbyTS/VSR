@@ -355,7 +355,7 @@ for input_file_path in processes:
                f"'{cag['dest_path']}'"]
         has_audio = 'streams' in eval(subprocess.getoutput(f"ffprobe -v quiet -show_streams -select_streams a -print_format json '{cag['input_file_path']}'")).keys()
         if cag['start_frame'] == 1 and cag['end_frame'] == 0 and has_audio:
-            cmd.insert(1, '-thread_queue_size 128')
+            cmd.insert(1, '-thread_queue_size 1048576')
             cmd.insert(3, f"-vn -i '{cag['input_file_path']}'")
             cmd.insert(7, f"-acodec {cag['acodec']}")
         cmd = ' '.join(cmd)
