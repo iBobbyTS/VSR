@@ -353,7 +353,7 @@ for input_file_path in processes:
                '-i', f"'{os.path.join(cag['temp_folder'], 'tiff/*.tiff')}'",
                '-vcodec', cag['vcodec'], *mac_compatibility,
                f"'{cag['dest_path']}'"]
-        has_audio = eval(subprocess.getoutput(f"ffprobe -v quiet -show_streams -select_streams a -print_format json '{cag['input_file_path']}'"))['streams']
+        has_audio = 'streams' in eval(subprocess.getoutput(f"ffprobe -v quiet -show_streams -select_streams a -print_format json '{cag['input_file_path']}'")).keys()
         if cag['start_frame'] == 1 and cag['end_frame'] == 0 and has_audio:
             cmd.insert(1, '-thread_queue_size 128')
             cmd.insert(3, f"-vn -i '{cag['input_file_path']}'")
