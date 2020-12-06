@@ -10,8 +10,8 @@ from basicsr.models.archs.edvr_arch import EDVR
 vram = round(int(subprocess.getoutput('nvidia-smi --query-gpu=memory.free --format=csv').split(' ')[1].split('\n')[1])/1000)
 
 models = {  # 'model_name': [model, num_of_frame, enlarge_factor:ef, multiple, max_res]
-        'ld':   [{'num_feat':128, 'num_reconstruct_block':40, 'hr_in':True, 'with_predeblur':True}, 5, 1, 16, {16:992}],
-        'ldc':  [{'num_feat':128, 'num_reconstruct_block':40, 'hr_in':True, 'with_predeblur':True}, 5, 1, 16, {16:992}],
+        'ld':   [{'num_feat':128, 'num_reconstruct_block':40, 'hr_in':True, 'with_predeblur':True}, 5, 1, 16, {16:976}],
+        'ldc':  [{'num_feat':128, 'num_reconstruct_block':40, 'hr_in':True, 'with_predeblur':True}, 5, 1, 16, {16:976}],
         'l4r':  [{'num_feat':128, 'num_reconstruct_block':40}, 5, 4, 4, {16:288}],
         'l4v':  [{'num_feat':128, 'num_reconstruct_block':40, 'num_frame':7, 'center_frame_idx':3}, 7, 4, 4, {16:256}],
         'l4br': [{'num_feat':128, 'num_reconstruct_block':40, 'with_predeblur':True}, 5, 4, 4, {16:256}],
