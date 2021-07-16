@@ -4,7 +4,7 @@ import math
 import numpy
 import torch
 
-from basicsr.models.archs.edvr_arch import EDVR
+from basicsr.archs.edvr_arch import EDVR
 
 
 vram = round(int(subprocess.getoutput('nvidia-smi --query-gpu=memory.free --format=csv').split(' ')[1].split('\n')[1])/1000)
